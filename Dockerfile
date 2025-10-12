@@ -36,7 +36,12 @@ EOF
 # 2. NODE_OPTIONS=--openssl-legacy-provider: Resolves OpenSSL related errors (ERR_OSSL_EVP_UNSUPPORTED).
 ARG NEXT_SHARP_PATH
 ARG NODE_OPTIONS
-RUN NODE_OPTIONS=$NODE_OPTIONS npm run build
+
+ENV NEXT_SHARP_PATH=$NEXT_SHARP_PATH
+ENV NODE_OPTIONS=$NODE_OPTIONS
+
+
+RUN npm run build
 
 # --------------------------------------------------------
 # STAGE 2: Production Runtime (minimal image for running the app)
