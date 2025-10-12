@@ -1,18 +1,22 @@
-FROM node:18.0.0-alpine
+# Minimal, fixes TS version + keeps secrets out of image
+FROM node:18-alpine
 
-RUN mkdir -p /usr/src/app
-WORKDIR /usr/src/app
+WORKDIR /app
+# (optional) helps native deps like sharp on Alpine
+RUN apk add --no-cache libc6-compat
 
+# Install deps (cache-friendly)
+COPY package*.json ./
+RUN npm install --no-audit --no-fund
+
+# Copy source
 COPY . .
-ENV NODE_OPTIONS=--openssl-legacy-provider
 
-ARG API_KEY
-ENV TMDB_KEY=${API_KEY}
+# Ensure TS understands `useUnknownInCatchVariables`
+RUN npm i -D typescript@^5.4 @types/node@^18 --no-audit --no-fund
 
-RUN npm install
-
+# Build
 RUN npm run build
 
 EXPOSE 3000
-
-CMD ["npm", "start"]
+CMD ["npm","start","--","-p","3000"]
