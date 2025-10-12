@@ -1,0 +1,50 @@
+name: Deploy To Staging
+
+on:
+  pull_request:
+    branches: [ main ]
+
+env:
+  IMAGE_REPO: fadi7ay/nextflix
+
+jobs:
+  build-and-deploy-staging:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Docker Hub login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & push image (staging)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE_REPO }}:staging-${{ github.sha }}
+
+      - name: Deploy to staging (SSH)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script_stop: true
+          envs: TMDB_API_KEY,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
+          script: |
+            cd ~/nextflix
+            export TMDB_API_KEY='${{ secrets.TMDB_API_KEY }}'
+            ./deploy.sh '${{ env.IMAGE_REPO }}:staging-${{ github.sha }}' 3000
+
+      - name: Slack notify (staging)
+        if: always()
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {"text":":rocket: *NextFlix* deployed to *staging* (PR #${{ github.event.pull_request.number }})\nTag: staging-${{ github.sha }}\nHost: ${{ secrets.STAGING_HOST }}"}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
