@@ -57,8 +57,8 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_SSH_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
+          username: ${{ secrets.SH_USER }}
+          key: ${{ secrets.SSH_KEY }}
           script_stop: true
           script: |
             # Login to Docker Hub
