@@ -2,70 +2,126 @@ name: Deploy To Production
 
 on:
   push:
-    branches: [ main ] # Runs after merge or direct push to main
+    branches: [ main ]
 
 env:
   IMAGE_REPO: fadi7ay/nextflix
 
 jobs:
-  deploy-production:
+  build-and-deploy-production:
     runs-on: ubuntu-latest
-    # Prevents simultaneous production deploys
-    concurrency: prod-deploy 
+    concurrency: 
+      group: prod-deploy
+      cancel-in-progress: false
     
     steps:
-      - name: Checkout repository (To access deploy.sh)
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- Tagging & Auth ---
-      # Set version tags based on the main branch SHA for history/rollback
-      - name: Set Production Tags
-        id: set_tags
+      - name: Set production tags
         run: |
-          echo "PROD_SHA_TAG=prod-${{ github.sha }}" >> $GITHUB_ENV
-          echo "LATEST_TAG=latest" >> $GITHUB_ENV
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "PROD_TAG=prod-${SHORT_SHA}" >> $GITHUB_ENV
+          echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
 
       - name: Docker Hub login
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_REPO }}:${{ env.PROD_TAG }}
+            ${{ env.IMAGE_REPO }}:latest
           
-      # --- CD Phase: Deploy to Production EC2 (Reuse Image) ---
-    
-      # to deploy the *previously built* image.
-      - name: Deploy to Production (SSH)
+      - name: Deploy to Production
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }} # Use prod-specific key
+          key: ${{ secrets.SSH_KEY }}
           script_stop: true
           script: |
-            # 1. Login to Docker Hub on the remote EC2 instance
-            docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
             
-            # 2. Pull the image tagged 'latest' (which should be the last successfully built image)
-            LATEST_IMAGE='${{ env.IMAGE_REPO }}:${{ env.LATEST_TAG }}'
-            docker pull $LATEST_IMAGE
-            
-            # 3. Tag the pulled image with the specific SHA for versioning/rollback
-            docker tag $LATEST_IMAGE ${{ env.IMAGE_REPO }}:${{ env.PROD_SHA_TAG }}
-
-            # 4. Execute the deploy script.
-            # Args: $1=IMAGE_TAG, $2=PORT, $3=TMDB_API_KEY
+            mkdir -p ~/nextflix
             cd ~/nextflix
+            
+            cat > deploy.sh <<'DEPLOY_SCRIPT'
+            #!/bin/bash
+            set -e
+            IMAGE_TAG="${1}"
+            PORT="${2:-3000}"
+            TMDB_API_KEY="${3}"
+            CONTAINER_NAME="nextflix"
+            
+            if [ -z "$IMAGE_TAG" ] || [ -z "$TMDB_API_KEY" ]; then
+                echo "Error: Missing required arguments"
+                exit 1
+            fi
+            
+            echo "Deploying $IMAGE_TAG..."
+            docker pull "$IMAGE_TAG"
+            
+            if [ "$(docker ps -aq -f name=$CONTAINER_NAME)" ]; then
+                docker stop $CONTAINER_NAME || true
+                docker rm $CONTAINER_NAME || true
+            fi
+            
+            docker run -d \
+                --name $CONTAINER_NAME \
+                --restart unless-stopped \
+                -p $PORT:3000 \
+                -e TMDB_API_KEY="$TMDB_API_KEY" \
+                -e NODE_ENV=production \
+                "$IMAGE_TAG"
+            
+            sleep 5
+            
+            if [ "$(docker ps -q -f name=$CONTAINER_NAME)" ]; then
+                echo "Deployment successful"
+                docker logs --tail 10 $CONTAINER_NAME
+            else
+                echo "Deployment failed"
+                docker logs $CONTAINER_NAME
+                exit 1
+            fi
+            
+            docker images --format "{{.Repository}}:{{.Tag}} {{.ID}}" | \
+                grep "fadi7ay/nextflix" | \
+                tail -n +4 | \
+                awk '{print $2}' | \
+                xargs -r docker rmi || true
+            DEPLOY_SCRIPT
+            
+            chmod +x deploy.sh
+            
             ./deploy.sh \
-              $LATEST_IMAGE \
+              '${{ env.IMAGE_REPO }}:latest' \
               3000 \
-              '${{ secrets.TMDB_API_KEY }}' 
+              '${{ secrets.TMDB_API_KEY }}'
 
-      # --- Notification Phase ---
-      - name: Slack notify (production) 
+      - name: Slack notify
         if: always()
         uses: slackapi/slack-github-action@v1.27.0
         with:
           payload: |
-            {"text":":tada: *NextFlix* deployed to *production*\nTags: ${{ env.PROD_SHA_TAG }}, latest\nHost: ${{ secrets.PROD_HOST }}"}
+            {
+              "text": "NextFlix Production Deployment",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*NextFlix Production Deployment*\n*Commit:* `${{ env.SHORT_SHA }}`\n*Tags:* `${{ env.PROD_TAG }}`, `latest`\n*Status:* ${{ job.status }}\n*By:* ${{ github.actor }}"
+                  }
+                }
+              ]
+            }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
