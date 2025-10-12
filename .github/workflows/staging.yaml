@@ -1,9 +1,9 @@
 name: Deploy To Staging
 
 on:
-  pull_request:
+  push:
     branches: [ main ]
-    types: [ opened, synchronize, reopened ]
+  
 
 env:
   IMAGE_REPO: fadi7ay/nextflix
