@@ -40,8 +40,8 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_SSH_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }} # Use staging-specific key for security
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }} # Use staging-specific key for security
           script_stop: true
           script: |
             # 1. Login to Docker Hub on the remote EC2 instance
