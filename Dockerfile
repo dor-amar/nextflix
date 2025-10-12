@@ -1,12 +1,9 @@
-FROM node:18-alpine
+FROM node:18-slim 
 WORKDIR /app
 
 # deps first (cache-friendly)
 COPY package*.json ./
 RUN npm install --no-audit --no-fund
-
-# NEW: Install dependencies required for Next.js image optimization (WASM) on Alpine
-RUN apk add --no-cache cairo jpeg pango gdk-pixbuf
 
 # app source
 COPY . .
