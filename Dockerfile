@@ -34,9 +34,9 @@ EOF
 # CRITICAL FIX: Use build arguments to bypass known Next.js issues
 # 1. NEXT_SHARP_PATH=/dev/null: Forces Next.js to skip loading native image optimization modules (WASM error fix).
 # 2. NODE_OPTIONS=--openssl-legacy-provider: Resolves OpenSSL related errors (ERR_OSSL_EVP_UNSUPPORTED).
-ARG NEXT_SHARP_PATH=/dev/null
-ARG NODE_OPTIONS=--openssl-legacy-provider
-RUN ${NODE_OPTIONS} ${NEXT_SHARP_PATH} npm run build
+ARG NEXT_SHARP_PATH
+ARG NODE_OPTIONS
+RUN NODE_OPTIONS=$NODE_OPTIONS npm run build
 
 # --------------------------------------------------------
 # STAGE 2: Production Runtime (minimal image for running the app)
