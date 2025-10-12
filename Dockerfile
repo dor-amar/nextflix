@@ -1,20 +1,21 @@
-# Use a slim image for a smaller final size while avoiding Alpine's musl libc issues
-FROM node:18-slim 
-
+# --------------------------------------------------------
+# STAGE 1: Build (using a Debian base)
+# --------------------------------------------------------
+FROM node:18-slim AS builder
 WORKDIR /app
 
 # Install dependencies (cache-friendly layer)
 COPY package*.json ./
 RUN npm install --no-audit --no-fund
 
-# app source
+# Copy all application source code
 COPY . .
 
-# 1. Install required TypeScript version
+# Ensure required TypeScript version is installed for the project
 RUN npm i -D typescript@^5.4 --no-audit --no-fund
 
-# 2. Add next.config.js with build error overrides
-# FIX: Disable Next.js image optimization (unoptimized: true) to bypass the WASM error.
+# FIX 1: Create next.config.js to bypass the build-time checks (as requested)
+# FIX 2: Disable Next.js image optimization (unoptimized: true) to bypass the WASM error.
 RUN cat > next.config.js <<'EOF'
 module.exports = {
   typescript: { ignoreBuildErrors: true },
@@ -23,9 +24,26 @@ module.exports = {
 };
 EOF
 
-# build & run
-# FIX: The OpenSSL issue is resolved by using the legacy provider flag.
+# Build the application
+# FIX 3: Use the legacy provider flag to resolve the OpenSSL issue (ERR_OSSL_EVP_UNSUPPORTED)
 RUN NODE_OPTIONS=--openssl-legacy-provider npm run build
 
+# --------------------------------------------------------
+# STAGE 2: Production Runtime (Smaller Image)
+# --------------------------------------------------------
+# Use a separate, even smaller image for the final runtime
+FROM node:18-slim 
+WORKDIR /app
+
+# Copy only the necessary files from the builder stage
+COPY --from=builder /app/next.config.js ./next.config.js
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+
+# Next.js defaults to port 3000
 EXPOSE 3000
-CMD ["npm","start","--","-p","3000"]
+
+# Start the application
+CMD ["npm","start"]
