@@ -1,11 +1,10 @@
-# ---- Build stage ----
-FROM node:18-alpine AS build
-WORKDIR /app
+FROM node:18-alpine
 
-# Needed by Next.js/sharp on Alpine
+WORKDIR /usr/src/app
+# (optional) helps native deps like sharp on Alpine
 RUN apk add --no-cache libc6-compat
 
-# Install deps with npm (no yarn)
+# Install deps first for better caching
 COPY package*.json ./
 RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
@@ -13,11 +12,6 @@ RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm inst
 COPY . .
 RUN npm run build
 
-# ---- Runtime stage ----
-FROM node:18-alpine
-ENV NODE_ENV=production
-WORKDIR /app
-
-COPY --from=build /app ./
+# App runs with TMDB_API_KEY provided at runtime (via docker run -e ...)
 EXPOSE 3000
 CMD ["npm","start","--","-p","3000"]
