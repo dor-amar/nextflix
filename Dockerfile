@@ -5,6 +5,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --no-audit --no-fund
 
+# NEW: Install dependencies required for Next.js image optimization (WASM) on Alpine
+RUN apk add --no-cache cairo jpeg pango gdk-pixbuf
+
 # app source
 COPY . .
 
@@ -19,7 +22,6 @@ module.exports = {
 };
 EOF
 
-# build & run
 # build & run
 # FIX: Bypass OpenSSL v3's restrictions for legacy hashing during build
 RUN NODE_OPTIONS=--openssl-legacy-provider npm run build
