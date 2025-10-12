@@ -6,45 +6,61 @@ on:
 
 env:
   IMAGE_REPO: fadi7ay/nextflix
+ 
+  STAGING_TAG: staging-pr-${{ github.event.pull_request.number }} 
 
 jobs:
   build-and-deploy-staging:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # --- CI Phase: Build & Push to Docker Hub ---
       - name: Docker Hub login
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build & push image (staging)
+      - name: Build & push image (staging) 📦
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ env.IMAGE_REPO }}:staging-${{ github.sha }}
-
-      - name: Deploy to staging (SSH)
+          tags: ${{ env.IMAGE_REPO }}:${{ env.STAGING_TAG }}
+          # CRITICAL FIXES: Bypass Next.js image optimization (WASM) and OpenSSL errors
+          build-args: |
+            NEXT_SHARP_PATH=/dev/null 
+            NODE_OPTIONS=--openssl-legacy-provider 
+      
+      # --- CD Phase: Deploy to Staging EC2 ---
+      - name: Deploy to Staging (SSH) 🚀
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }} # Use staging-specific key for security
           script_stop: true
-          envs: TMDB_API_KEY,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
           script: |
+            # 1. Login to Docker Hub on the remote EC2 instance
+            docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+            
+            # 2. Execute the deploy script. deploy.sh handles pull/stop/remove/run.
+            # Args: $1=IMAGE_TAG, $2=PORT, $3=TMDB_API_KEY
             cd ~/nextflix
-            export TMDB_API_KEY='${{ secrets.TMDB_API_KEY }}'
-            ./deploy.sh '${{ env.IMAGE_REPO }}:staging-${{ github.sha }}' 3000
-
-      - name: Slack notify (staging)
+            ./deploy.sh \
+              '${{ env.IMAGE_REPO }}:${{ env.STAGING_TAG }}' \
+              3000 \
+              '${{ secrets.TMDB_API_KEY }}' 
+              
+      # --- Notification Phase ---
+      - name: Slack notify (staging) 
         if: always()
         uses: slackapi/slack-github-action@v1.27.0
         with:
           payload: |
-            {"text":":rocket: *NextFlix* deployed to *staging* (PR #${{ github.event.pull_request.number }})\nTag: staging-${{ github.sha }}\nHost: ${{ secrets.STAGING_HOST }}"}
+            {"text":":rocket: *NextFlix* deployed to *staging* (PR #${{ github.event.pull_request.number }})\nTag: ${{ env.STAGING_TAG }}\nHost: ${{ secrets.STAGING_HOST }}"}
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
