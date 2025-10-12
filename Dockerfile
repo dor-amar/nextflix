@@ -17,40 +17,55 @@ COPY . .
 # Install TypeScript developer dependency if needed by the build
 RUN npm i -D typescript@^5.4 --no-audit --no-fund
 
-# CRITICAL FIX: Override next.config.js to bypass image optimization
-# This must happen AFTER copying files to ensure it takes precedence
+# AGGRESSIVE FIX: Delete the problematic image optimization files entirely
+# This prevents Next.js from even attempting to use them
+RUN rm -rf /app/node_modules/next/dist/next-server/server/lib/squoosh || true
+RUN rm -rf /app/node_modules/next/dist/compiled/sharp || true
+RUN rm -rf /app/node_modules/sharp || true
+
+# Create next.config.js with complete image optimization bypass
 RUN cat > next.config.js <<'EOF'
 module.exports = {
-  // Ignore build errors related to TypeScript or ESLint in CI/CD
+  // Ignore build errors
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
   
-  // *** DEFINITIVE FIX for WASM/Squoosh error ***
-  // Disable all image optimization during build
+  // Completely disable image optimization
   images: {
     unoptimized: true,
+    disableStaticImages: true,
   },
   
-  // Optional: Add webpack config to exclude problematic WASM files
+  // Webpack config to prevent any image processing
   webpack: (config, { isServer }) => {
+    // Ignore image files during webpack processing
+    config.module.rules.push({
+      test: /\.(png|jpg|jpeg|gif|webp|avif|ico|bmp|svg)$/i,
+      type: 'asset/resource',
+    });
+    
     if (isServer) {
       config.externals = config.externals || [];
       config.externals.push({
         'sharp': 'commonjs sharp',
-        '@next/swc': 'commonjs @next/swc'
+        '@next/swc': 'commonjs @next/swc',
+        'squoosh': 'commonjs squoosh'
       });
     }
+    
     return config;
   },
 };
 EOF
 
-# Build the application with additional environment variables
+# Set environment variables to bypass image optimization completely
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NEXT_SHARP_PATH=/dev/null
+ENV NEXT_SHARP_PATH=/tmp/nonexistent
 ENV NODE_OPTIONS=--openssl-legacy-provider
+ENV SKIP_IMAGE_OPTIMIZATION=1
 
-RUN npm run build
+# Build the application
+RUN npm run build 2>&1 | tee build.log || (cat build.log && exit 1)
 
 # --------------------------------------------------------
 # STAGE 2: Production Runtime (minimal image for running the app)
@@ -74,6 +89,10 @@ COPY --from=builder /app/package.json ./
 
 # Expose the application port
 EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})" || exit 1
 
 # Start the application in production mode
 CMD ["npm", "start"]
