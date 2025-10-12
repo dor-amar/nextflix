@@ -1,6 +1,5 @@
 # STAGE 1: Build (uses a full Node environment to compile)
 # --------------------------------------------------------
-# Use a Node 18 slim base for the build stage for stability
 FROM node:18-slim AS builder
 
 # Set the working directory
@@ -10,7 +9,6 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install project dependencies
-# (We saw npm warnings, but the failure is not here)
 RUN npm install --no-audit --no-fund
 
 # Copy the rest of the application source code
@@ -19,9 +17,8 @@ COPY . .
 # Install TypeScript developer dependency if needed by the build
 RUN npm i -D typescript@^5.4 --no-audit --no-fund
 
-# CRITICAL FIX: Create next.config.js with the definitive image optimization bypass
-# This configuration forces Next.js to use a placeholder external loader, 
-# completely bypassing the native WASM/sharp image optimization during build.
+# CRITICAL FIX: Override next.config.js to bypass image optimization
+# This must happen AFTER copying files to ensure it takes precedence
 RUN cat > next.config.js <<'EOF'
 module.exports = {
   // Ignore build errors related to TypeScript or ESLint in CI/CD
@@ -29,47 +26,51 @@ module.exports = {
   eslint: { ignoreDuringBuilds: true },
   
   // *** DEFINITIVE FIX for WASM/Squoosh error ***
+  // Disable all image optimization during build
   images: {
-    // Setting a placeholder loader and path bypasses the default Next.js server-side optimizer.
-    loader: 'imgix',
-    path: 'placeholder',
-    // We keep unoptimized just as a safe measure, though the loader/path combination is key.
-    unoptimized: true, 
+    unoptimized: true,
+  },
+  
+  // Optional: Add webpack config to exclude problematic WASM files
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals = config.externals || [];
+      config.externals.push({
+        'sharp': 'commonjs sharp',
+        '@next/swc': 'commonjs @next/swc'
+      });
+    }
+    return config;
   },
 };
 EOF
 
-# Build the application
-# Keep ARG/ENV as a safeguard, even if the primary fix is the next.config.js change.
-ARG NEXT_SHARP_PATH
-ARG NODE_OPTIONS
+# Build the application with additional environment variables
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_SHARP_PATH=/dev/null
+ENV NODE_OPTIONS=--openssl-legacy-provider
 
-# Convert ARGs into persistent ENV variables for the RUN command
-ENV NEXT_SHARP_PATH=$NEXT_SHARP_PATH
-ENV NODE_OPTIONS=$NODE_OPTIONS
-
-# The application build command
 RUN npm run build
 
 # --------------------------------------------------------
 # STAGE 2: Production Runtime (minimal image for running the app)
 # --------------------------------------------------------
-# Use the same lightweight Node 18 slim base for consistency and minimal attack surface
 FROM node:18-slim
 
 # Set environment variables
-ENV PORT 3000
+ENV PORT=3000
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
 # Set the working directory
 WORKDIR /app
 
 # Copy only the necessary files from the builder stage
-# This creates a small, production-ready image
-COPY --from=builder /app/next.config.js ./next.config.js
+COPY --from=builder /app/next.config.js ./
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/package.json ./
 
 # Expose the application port
 EXPOSE 3000
