@@ -38,8 +38,8 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_SSH_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }} # Use prod-specific key
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }} # Use prod-specific key
           script_stop: true
           script: |
             # 1. Login to Docker Hub on the remote EC2 instance
