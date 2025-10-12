@@ -20,6 +20,8 @@ module.exports = {
 EOF
 
 # build & run
-RUN npm run build
+# build & run
+# FIX: Bypass OpenSSL v3's restrictions for legacy hashing during build
+RUN NODE_OPTIONS=--openssl-legacy-provider npm run build
 EXPOSE 3000
 CMD ["npm","start","--","-p","3000"]
