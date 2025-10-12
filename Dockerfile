@@ -77,7 +77,7 @@ ENV PORT=3000
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Set the working directory
+# Set the working directory TEST
 WORKDIR /app
 
 # Copy only the necessary files from the builder stage
