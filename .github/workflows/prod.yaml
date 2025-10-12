@@ -34,7 +34,7 @@ jobs:
       # --- CD Phase: Deploy to Production EC2 (Reuse Image) ---
     
       # to deploy the *previously built* image.
-      - name: Deploy to Production (SSH) 🎉
+      - name: Deploy to Production (SSH)
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.PROD_HOST }}
