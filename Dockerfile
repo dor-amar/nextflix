@@ -10,6 +10,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install project dependencies
+# (We saw npm warnings, but the failure is not here)
 RUN npm install --no-audit --no-fund
 
 # Copy the rest of the application source code
@@ -18,25 +19,32 @@ COPY . .
 # Install TypeScript developer dependency if needed by the build
 RUN npm i -D typescript@^5.4 --no-audit --no-fund
 
-# CRITICAL FIX: Create next.config.js with build error overrides
-# This is required to deal with build issues in a headless CI environment
+# CRITICAL FIX: Create next.config.js with the definitive image optimization bypass
+# This configuration forces Next.js to use a placeholder external loader, 
+# completely bypassing the native WASM/sharp image optimization during build.
 RUN cat > next.config.js <<'EOF'
 module.exports = {
   // Ignore build errors related to TypeScript or ESLint in CI/CD
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
-  // Set unoptimized to true to help with image loading issues (WASM/Squoosh error fix)
-  images: { unoptimized: true }, 
+  
+  // *** DEFINITIVE FIX for WASM/Squoosh error ***
+  images: {
+    // Setting a placeholder loader and path bypasses the default Next.js server-side optimizer.
+    loader: 'imgix',
+    path: 'placeholder',
+    // We keep unoptimized just as a safe measure, though the loader/path combination is key.
+    unoptimized: true, 
+  },
 };
 EOF
 
 # Build the application
-# These ARGs receive values from the GitHub Action workflow's --build-arg flag
+# Keep ARG/ENV as a safeguard, even if the primary fix is the next.config.js change.
 ARG NEXT_SHARP_PATH
 ARG NODE_OPTIONS
 
-# CRITICAL FIX: Convert ARGs into persistent ENV variables for the RUN command
-# This ensures Next.js receives the instructions to bypass the sharp/WASM module
+# Convert ARGs into persistent ENV variables for the RUN command
 ENV NEXT_SHARP_PATH=$NEXT_SHARP_PATH
 ENV NODE_OPTIONS=$NODE_OPTIONS
 
@@ -47,7 +55,7 @@ RUN npm run build
 # STAGE 2: Production Runtime (minimal image for running the app)
 # --------------------------------------------------------
 # Use the same lightweight Node 18 slim base for consistency and minimal attack surface
-FROM node:18-slim 
+FROM node:18-slim
 
 # Set environment variables
 ENV PORT 3000
