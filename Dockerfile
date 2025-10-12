@@ -1,16 +1,12 @@
 FROM node:18-alpine
 WORKDIR /app
+
 COPY package*.json ./
 RUN npm install --no-audit --no-fund
-COPY . .
 
-# Minimal fix: bypass TS & ESLint errors only during container build
-RUN cat > next.config.js <<'EOF'
-module.exports = {
-  typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
-};
-EOF
+COPY . .
+# 👇 this single line fixes TS5023
+RUN npm i -D typescript@^5.4 --no-audit --no-fund
 
 RUN npm run build
 EXPOSE 3000
